@@ -67,7 +67,7 @@ def cancel(update: Update, context: CallbackContext):
 
 def main():
     # Указываем свой токен для бота
-    updater = Updater("ВАШ_BOT_TOKEN", use_context=True)
+    updater = Updater("8132823364:AAFAJ-oRClVSLk5g17_CyG2EkKfhuyuuwZc", use_context=True)
     dp = updater.dispatcher
 
     # Конфигурация обработчиков
