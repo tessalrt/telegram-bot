@@ -1,6 +1,9 @@
 import logging
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackContext
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, ConversationHandler,
+    ContextTypes, filters
+)
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -9,40 +12,54 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Google Sheets
-scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+scope = ['https://spreadsheets.google.com/feeds',
+         'https://www.googleapis.com/auth/drive']
+import os
+import json
+from oauth2client.service_account import ServiceAccountCredentials
+
+# Чтение данных из переменной окружения
+credentials_json = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+
+if credentials_json:
+    credentials_dict = json.loads(credentials_json)
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+else:
+    print("Ошибка: переменная окружения GOOGLE_APPLICATION_CREDENTIALS_JSON не установлена.")
+    exit(1)
 gs_client = gspread.authorize(creds)
 sheet = gs_client.open("Queue").sheet1
 
 # Этапы опроса
 SURNAME, NAME, DOB, PHONE, EMAIL = range(5)
 
-def start(update: Update, context: CallbackContext):
-    update.message.reply_text("Здравствуйте! Давайте оформим вашу заявку.\nВведите, пожалуйста, вашу фамилию:")
+# Хендлеры опроса
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Здравствуйте! Давайте оформим вашу заявку.\nВведите, пожалуйста, вашу фамилию:")
     return SURNAME
 
-def surname_handler(update: Update, context: CallbackContext):
+async def surname_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['surname'] = update.message.text.strip()
-    update.message.reply_text("Отлично. Теперь введите имя:")
+    await update.message.reply_text("Отлично. Теперь введите имя:")
     return NAME
 
-def name_handler(update: Update, context: CallbackContext):
+async def name_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['name'] = update.message.text.strip()
-    update.message.reply_text("Дата рождения (в формате ДД.MM.ГГГГ):")
+    await update.message.reply_text("Дата рождения (в формате ДД.MM.ГГГГ):")
     return DOB
 
-def dob_handler(update: Update, context: CallbackContext):
+async def dob_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['dob'] = update.message.text.strip()
-    update.message.reply_text("Телефон (например, +7XXXXXXXXXX):")
+    await update.message.reply_text("Телефон (например, +7XXXXXXXXXX):")
     return PHONE
 
-def phone_handler(update: Update, context: CallbackContext):
+async def phone_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['phone'] = update.message.text.strip()
-    update.message.reply_text("E‑mail:")
+    await update.message.reply_text("E‑mail:")
     return EMAIL
 
-def email_handler(update: Update, context: CallbackContext):
-    # собираем все данные
+async def email_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = {
         'surname': context.user_data['surname'],
         'name':    context.user_data['name'],
@@ -50,7 +67,8 @@ def email_handler(update: Update, context: CallbackContext):
         'phone':   context.user_data['phone'],
         'email':   update.message.text.strip()
     }
-    # записываем в Google Sheets
+
+    # Запись в Google Sheets
     sheet.append_row([
         data['surname'],
         data['name'],
@@ -58,38 +76,35 @@ def email_handler(update: Update, context: CallbackContext):
         data['phone'],
         data['email']
     ])
-    update.message.reply_text("Спасибо! Ваша заявка принята в очередь.")
+
+    await update.message.reply_text("Спасибо! Ваша заявка принята в очередь.")
     return ConversationHandler.END
 
-def cancel(update: Update, context: CallbackContext):
-    update.message.reply_text("Оформление заявки отменено.")
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Оформление заявки отменено.")
     return ConversationHandler.END
 
+# Основная функция
 def main():
-    # Указываем свой токен для бота
-    updater = Updater("8132823364:AAFAJ-oRClVSLk5g17_CyG2EkKfhuyuuwZc", use_context=True)
-    dp = updater.dispatcher
+    TOKEN = "8132823364:AAFAJ-oRClVSLk5g17_CyG2EkKfhuyuuwZc"
 
-    # Конфигурация обработчиков
+    app = Application.builder().token(TOKEN).build()
+
     conv = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
-            SURNAME: [MessageHandler(Filters.text & ~Filters.command, surname_handler)],
-            NAME:    [MessageHandler(Filters.text & ~Filters.command, name_handler)],
-            DOB:     [MessageHandler(Filters.text & ~Filters.command, dob_handler)],
-            PHONE:   [MessageHandler(Filters.text & ~Filters.command, phone_handler)],
-            EMAIL:   [MessageHandler(Filters.text & ~Filters.command, email_handler)],
+            SURNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, surname_handler)],
+            NAME:    [MessageHandler(filters.TEXT & ~filters.COMMAND, name_handler)],
+            DOB:     [MessageHandler(filters.TEXT & ~filters.COMMAND, dob_handler)],
+            PHONE:   [MessageHandler(filters.TEXT & ~filters.COMMAND, phone_handler)],
+            EMAIL:   [MessageHandler(filters.TEXT & ~filters.COMMAND, email_handler)],
         },
-        fallbacks=[CommandHandler('cancel', cancel)]
+        fallbacks=[CommandHandler('cancel', cancel)],
     )
 
-    dp.add_handler(conv)
+    app.add_handler(conv)
 
-    # Старт polling, чтобы получать обновления
-    updater.start_polling()
-
-    # Ожидаем завершения работы
-    updater.idle()
+    app.run_polling()
 
 if __name__ == '__main__':
     main()
