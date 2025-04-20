@@ -14,7 +14,20 @@ logger = logging.getLogger(__name__)
 # Google Sheets
 scope = ['https://spreadsheets.google.com/feeds',
          'https://www.googleapis.com/auth/drive']
-creds = ServiceAccountCredentials.from_json_keyfile_name('D:\TelegramBot\my-project-1391-457415-98516e94acbe.json', scope)
+import os
+import json
+from oauth2client.service_account import ServiceAccountCredentials
+
+# Чтение данных из переменной окружения
+credentials_json = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+
+if credentials_json:
+    credentials_dict = json.loads(credentials_json)
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+else:
+    print("Ошибка: переменная окружения GOOGLE_APPLICATION_CREDENTIALS_JSON не установлена.")
+    exit(1)
 gs_client = gspread.authorize(creds)
 sheet = gs_client.open("Queue").sheet1
 
