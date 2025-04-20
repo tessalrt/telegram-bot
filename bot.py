@@ -1,34 +1,95 @@
 import logging
-import os
 from telegram import Update
-from telegram.ext import Application, CommandHandler, CallbackContext
-import requests
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackContext
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 # Логи
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Токен твоего бота
-TOKEN = "8132823364:AAFAJ-oRClVSLk5g17_CyG2EkKfhuyuuwZc"
+# Google Sheets
+scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+gs_client = gspread.authorize(creds)
+sheet = gs_client.open("Queue").sheet1
 
-# URL для webhook
-WEBHOOK_URL = "https://<your-render-app-name>.render.com/"  # Замените на URL вашего Render-приложения
+# Этапы опроса
+SURNAME, NAME, DOB, PHONE, EMAIL = range(5)
 
-async def start(update: Update, context: CallbackContext):
-    await update.message.reply_text("Привет! Это тестовый бот.")
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text("Здравствуйте! Давайте оформим вашу заявку.\nВведите, пожалуйста, вашу фамилию:")
+    return SURNAME
+
+def surname_handler(update: Update, context: CallbackContext):
+    context.user_data['surname'] = update.message.text.strip()
+    update.message.reply_text("Отлично. Теперь введите имя:")
+    return NAME
+
+def name_handler(update: Update, context: CallbackContext):
+    context.user_data['name'] = update.message.text.strip()
+    update.message.reply_text("Дата рождения (в формате ДД.MM.ГГГГ):")
+    return DOB
+
+def dob_handler(update: Update, context: CallbackContext):
+    context.user_data['dob'] = update.message.text.strip()
+    update.message.reply_text("Телефон (например, +7XXXXXXXXXX):")
+    return PHONE
+
+def phone_handler(update: Update, context: CallbackContext):
+    context.user_data['phone'] = update.message.text.strip()
+    update.message.reply_text("E‑mail:")
+    return EMAIL
+
+def email_handler(update: Update, context: CallbackContext):
+    # собираем все данные
+    data = {
+        'surname': context.user_data['surname'],
+        'name':    context.user_data['name'],
+        'dob':     context.user_data['dob'],
+        'phone':   context.user_data['phone'],
+        'email':   update.message.text.strip()
+    }
+    # записываем в Google Sheets
+    sheet.append_row([
+        data['surname'],
+        data['name'],
+        data['dob'],
+        data['phone'],
+        data['email']
+    ])
+    update.message.reply_text("Спасибо! Ваша заявка принята в очередь.")
+    return ConversationHandler.END
+
+def cancel(update: Update, context: CallbackContext):
+    update.message.reply_text("Оформление заявки отменено.")
+    return ConversationHandler.END
 
 def main():
-    # Создаем приложение
-    application = Application.builder().token(TOKEN).build()
+    # Указываем свой токен для бота
+    updater = Updater("ВАШ_BOT_TOKEN", use_context=True)
+    dp = updater.dispatcher
 
-    # Добавляем обработчик для команды /start
-    application.add_handler(CommandHandler("start", start))
+    # Конфигурация обработчиков
+    conv = ConversationHandler(
+        entry_points=[CommandHandler('start', start)],
+        states={
+            SURNAME: [MessageHandler(Filters.text & ~Filters.command, surname_handler)],
+            NAME:    [MessageHandler(Filters.text & ~Filters.command, name_handler)],
+            DOB:     [MessageHandler(Filters.text & ~Filters.command, dob_handler)],
+            PHONE:   [MessageHandler(Filters.text & ~Filters.command, phone_handler)],
+            EMAIL:   [MessageHandler(Filters.text & ~Filters.command, email_handler)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
 
-    # Устанавливаем webhook
-    application.bot.set_webhook(WEBHOOK_URL + TOKEN)
+    dp.add_handler(conv)
 
-    # Запускаем webhook
-    application.run_webhook(listen="0.0.0.0", port=int(os.environ.get("PORT", 8000)), url_path=TOKEN, webhook_url=WEBHOOK_URL + TOKEN)
+    # Старт polling, чтобы получать обновления
+    updater.start_polling()
 
-if __name__ == "__main__":
+    # Ожидаем завершения работы
+    updater.idle()
+
+if __name__ == '__main__':
     main()
