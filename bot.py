@@ -16,7 +16,6 @@ scope = ['https://spreadsheets.google.com/feeds',
          'https://www.googleapis.com/auth/drive']
 import os
 import json
-from oauth2client.service_account import ServiceAccountCredentials
 
 # Чтение данных из переменной окружения
 credentials_json = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS_JSON')
